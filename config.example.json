@@ -1,0 +1,7 @@
+{
+  "qogita_email": "your@email.com",
+  "qogita_password": "yourpassword",
+  "google_sheet_url": "https://docs.google.com/spreadsheets/d/e/YOUR_SHEET_ID/pub?output=xlsx",
+  "margin_divisor": 1.12,
+  "headless": true
+}

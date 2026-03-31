@@ -1,0 +1,6 @@
+config.json
+session_state.json
+output/
+__pycache__/
+.pytest_cache/
+*.pyc
