@@ -2,7 +2,7 @@ import json
 import os
 from typing import Any
 
-REQUIRED_FIELDS = ["qogita_email", "qogita_password", "google_sheet_url", "margin_divisor", "headless"]
+REQUIRED_FIELDS = ["qogita_email", "qogita_password", "google_sheet_url", "margin_divisor", "headless", "anthropic_api_key"]
 
 
 class ConfigError(Exception):

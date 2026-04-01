@@ -17,7 +17,7 @@ async def run_analysis(config_path: str = "config.json") -> dict:
     config = load_config(config_path)
     rows = fetch_sheet_rows(config["google_sheet_url"])
 
-    claude_client = anthropic.Anthropic()
+    claude_client = anthropic.Anthropic(api_key=config["anthropic_api_key"])
     playwright, browser, context = await get_authenticated_context(
         config["qogita_email"],
         config["qogita_password"],

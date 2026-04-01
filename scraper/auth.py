@@ -30,7 +30,8 @@ async def get_authenticated_context(email: str, password: str, headless: bool = 
     await page.fill("input[type='email']", email)
     await page.fill("input[type='password']", password)
     await page.click("button[type='submit']")
-    await page.wait_for_url("**/catalog**", timeout=15000)
+    # Wait until we're no longer on the login page
+    await page.wait_for_function("() => !window.location.href.includes('/login')", timeout=15000)
     await context.storage_state(path=SESSION_FILE)
     await page.close()
     return playwright, browser, context
