@@ -1,6 +1,7 @@
 config.json
 session_state.json
-output/
+output/*.xlsx
+output/*.csv
 __pycache__/
 .pytest_cache/
 *.pyc
