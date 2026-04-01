@@ -12,7 +12,7 @@ from output.writer import write_excel, AnalysisRow
 async def run_analysis(config_path: str = "config.json") -> dict:
     """
     Full pipeline: fetch sheet → login → scrape each GTIN → calculate → write Excel.
-    Returns: {"file_path": str, "row_count": int, "error_count": int}
+    Returns: {"file_path", "row_count", "error_count", "bs4_hits", "claude_fallbacks"}
     """
     config = load_config(config_path)
     rows = fetch_sheet_rows(config["google_sheet_url"])
@@ -26,6 +26,8 @@ async def run_analysis(config_path: str = "config.json") -> dict:
 
     results: list[AnalysisRow] = []
     error_count = 0
+    bs4_hits = 0
+    claude_fallbacks = 0
 
     try:
         for sheet_row in rows:
@@ -37,7 +39,6 @@ async def run_analysis(config_path: str = "config.json") -> dict:
                 html = await get_product_page_html(gtin, context)
 
                 if html is None:
-                    pricing = {"suggested_price": None, "difference": None, "notes": "Not found"}
                     results.append(AnalysisRow(
                         gtin=gtin,
                         product_name=None,
@@ -45,11 +46,20 @@ async def run_analysis(config_path: str = "config.json") -> dict:
                         cost_price=cost_price,
                         cheapest_seller=None,
                         cheapest_seller_max_price=None,
-                        **pricing
+                        suggested_price=None,
+                        difference=None,
+                        notes="Not found"
                     ))
                     continue
 
                 product_data = extract_product_data(html, client=claude_client)
+
+                # Track which extraction method was used
+                if product_data["extraction_method"] == "bs4":
+                    bs4_hits += 1
+                else:
+                    claude_fallbacks += 1
+
                 pricing = calculate_row(
                     your_price=your_price,
                     cost_price=cost_price,
@@ -100,4 +110,10 @@ async def run_analysis(config_path: str = "config.json") -> dict:
         await playwright.stop()
 
     file_path = write_excel(results)
-    return {"file_path": file_path, "row_count": len(results), "error_count": error_count}
+    return {
+        "file_path": file_path,
+        "row_count": len(results),
+        "error_count": error_count,
+        "bs4_hits": bs4_hits,
+        "claude_fallbacks": claude_fallbacks,
+    }

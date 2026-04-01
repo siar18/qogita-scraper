@@ -60,16 +60,16 @@ Returns metadata about the last run.
 
 ## Data Flow
 
-1. **Fetch sheet** — Download the public Google Sheet as XLSX. Read all rows, extract GTIN (col 2, "GTIN") and Unit Price (col 5, "Unit Price").
+1. **Fetch sheet** — Download the public Google Sheet as XLSX. Read all rows, extract GTIN (col 2, "GTIN"), Unit Price (col 5, "Unit Price"), and Cost Price (col 6, "F").
 2. **Login** — Playwright logs in to Qogita using credentials from config. Session is persisted (browser storage state saved) to avoid re-login on every run.
 3. **Search** — For each GTIN, type it into the Qogita search bar and click the first result.
 4. **Scrape** — Capture the "Lowest priced offer" section HTML from the product page.
 5. **Extract (Claude-powered)** — Pass the HTML snippet to Claude (via Anthropic SDK). Claude returns: product name, cheapest supplier name, list of unit price tiers. This step is resilient to HTML/CSS changes — no fragile selectors.
 6. **Calculate**:
    - `cheapest_seller_max_price` = highest price tier of the cheapest seller (e.g. €60.28 — the price at lowest MOV)
-   - `suggested_price` = `cheapest_seller_max_price ÷ margin_divisor`
-   - `difference` = `suggested_price − your_qogita_price`
-   - If `suggested_price < your_unit_price` → Notes: "Can't compete"
+   - `suggested_price` = `cheapest_seller_max_price ÷ margin_divisor` (the price you'd need to set on Qogita to be cheapest, after Qogita's 11% margin is accounted for)
+   - `difference` = `suggested_price − your_qogita_price` (negative = you need to lower your listing)
+   - If `suggested_price < cost_price` (col F) → Notes: "Can't compete" (no profit margin left)
    - If product not found → Notes: "Not found"
    - If already competitive (difference ≥ 0) → Notes: "Already competitive"
    - Otherwise → Notes: "Lower needed"
@@ -83,7 +83,8 @@ Returns metadata about the last run.
 |--------|-------------|
 | GTIN | Product GTIN from Google Sheet |
 | Product Name | Scraped from Qogita product page |
-| Your Qogita Price | Unit Price from Google Sheet (col 5) |
+| Your Qogita Price | Unit Price from Google Sheet (col 5) — your current Qogita listing price |
+| Cost Price | Buying price from Google Sheet (col 6) — used to check if competing is profitable |
 | Cheapest Seller | Supplier name of the lowest-priced offer |
 | Cheapest Seller Max Price | Highest price tier (lowest MOV) of cheapest seller |
 | Suggested Price | Cheapest Seller Max Price ÷ 1.12 |

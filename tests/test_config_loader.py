@@ -10,7 +10,8 @@ def test_load_config_returns_all_fields(tmp_path):
         "qogita_password": "secret",
         "google_sheet_url": "https://example.com/sheet",
         "margin_divisor": 1.12,
-        "headless": True
+        "headless": True,
+        "anthropic_api_key": "sk-test-key"
     }
     config_file = tmp_path / "config.json"
     config_file.write_text(json.dumps(cfg))
