@@ -11,6 +11,7 @@ def test_write_excel_creates_file(tmp_path):
             your_qogita_price=65.00,
             cost_price=45.00,
             cheapest_seller="2WYZL",
+            cheapest_seller_stock=20,
             cheapest_seller_max_price=60.28,
             suggested_price=53.82,
             difference=-11.18,
@@ -31,6 +32,7 @@ def test_write_excel_correct_columns(tmp_path):
             your_qogita_price=50.0,
             cost_price=30.0,
             cheapest_seller=None,
+            cheapest_seller_stock=None,
             cheapest_seller_max_price=None,
             suggested_price=None,
             difference=None,
@@ -43,7 +45,7 @@ def test_write_excel_correct_columns(tmp_path):
     headers = [cell.value for cell in ws[1]]
     assert headers == [
         "GTIN", "Product Name", "Your Qogita Price", "Cost Price",
-        "Cheapest Seller", "Cheapest Seller Max Price",
+        "Cheapest Seller", "Cheapest Seller Stock", "Cheapest Seller Max Price",
         "Suggested Price", "Difference", "Notes"
     ]
-    assert ws.cell(2, 9).value == "Not found"
+    assert ws.cell(2, 10).value == "Not found"

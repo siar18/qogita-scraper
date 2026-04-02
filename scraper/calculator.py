@@ -26,6 +26,13 @@ def calculate_row(
         )
 
     difference = round(suggested_price - your_price, 2)
-    notes = "Already competitive" if difference >= 0 else "Lower needed"
+
+    if difference > 0:
+        # Your price is below the suggested price — you can raise it
+        notes = "Price increase possible"
+    elif difference == 0:
+        notes = "Optimal price"
+    else:
+        notes = "Lower needed"
 
     return PricingResult(suggested_price=suggested_price, difference=difference, notes=notes)

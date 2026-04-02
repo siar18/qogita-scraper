@@ -13,14 +13,14 @@ def test_lower_needed():
     assert result["notes"] == "Lower needed"
 
 
-def test_already_competitive():
+def test_price_increase_possible():
     result = calculate_row(
         your_price=50.00,
         cost_price=40.00,
         cheapest_max_price=60.28,
         margin_divisor=1.12
     )
-    assert result["notes"] == "Already competitive"
+    assert result["notes"] == "Price increase possible"
 
 
 def test_cant_compete():

@@ -9,6 +9,7 @@ class ProductData(TypedDict):
     product_name: Optional[str]
     cheapest_seller: Optional[str]
     cheapest_seller_max_price: Optional[float]
+    cheapest_seller_stock: Optional[int]
     extraction_method: str  # "bs4" or "claude" — for diagnostics
 
 
@@ -71,10 +72,22 @@ def _extract_with_bs4(html: str) -> Optional[ProductData]:
     if not price_tiers:
         return None
 
+    # Stock quantity — first standalone integer in the section (not part of a price)
+    cheapest_seller_stock = None
+    for el in lowest_section.find_all(string=re.compile(r"^\s*\d+\s*$")):
+        try:
+            val = int(el.strip())
+            if val > 0:
+                cheapest_seller_stock = val
+                break
+        except ValueError:
+            continue
+
     return ProductData(
         product_name=product_name,
         cheapest_seller=cheapest_seller,
         cheapest_seller_max_price=max(price_tiers),
+        cheapest_seller_stock=cheapest_seller_stock,
         extraction_method="bs4",
     )
 
@@ -104,11 +117,12 @@ EXTRACTION_PROMPT = """You are a data extraction assistant. Given HTML from a Qo
 1. The product name (from the h1 tag)
 2. The name of the cheapest/lowest-priced supplier
 3. All unit price tiers for that cheapest supplier, as a list of floats (strip the € symbol)
+4. The stock quantity of that cheapest supplier (integer)
 
 Return ONLY valid JSON:
-{"product_name": "string or null", "cheapest_seller": "string or null", "price_tiers": [float, ...]}
+{"product_name": "string or null", "cheapest_seller": "string or null", "price_tiers": [float, ...], "stock": integer or null}
 
-If no offers exist: {"product_name": null, "cheapest_seller": null, "price_tiers": []}
+If no offers exist: {"product_name": null, "cheapest_seller": null, "price_tiers": [], "stock": null}
 Only return JSON, no explanation."""
 
 
@@ -144,9 +158,11 @@ def extract_product_data(html: str, client: anthropic.Anthropic = None) -> Produ
 
     price_tiers: list[float] = data.get("price_tiers", [])
 
+    stock = data.get("stock")
     return ProductData(
         product_name=data.get("product_name"),
         cheapest_seller=data.get("cheapest_seller"),
         cheapest_seller_max_price=max(price_tiers) if price_tiers else None,
+        cheapest_seller_stock=int(stock) if stock else None,
         extraction_method="claude",
     )

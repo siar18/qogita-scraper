@@ -11,6 +11,7 @@ class AnalysisRow(TypedDict):
     your_qogita_price: float
     cost_price: float
     cheapest_seller: Optional[str]
+    cheapest_seller_stock: Optional[int]
     cheapest_seller_max_price: Optional[float]
     suggested_price: Optional[float]
     difference: Optional[float]
@@ -19,17 +20,21 @@ class AnalysisRow(TypedDict):
 
 HEADERS = [
     "GTIN", "Product Name", "Your Qogita Price", "Cost Price",
-    "Cheapest Seller", "Cheapest Seller Max Price",
+    "Cheapest Seller", "Cheapest Seller Stock", "Cheapest Seller Max Price",
     "Suggested Price", "Difference", "Notes"
 ]
 
 NOTE_COLORS = {
-    "Lower needed": "FFFFC0",      # yellow
-    "Can't compete": "FFCCCC",     # red
-    "Already competitive": "CCFFCC",  # green
-    "Not found": "E0E0E0",         # grey
-    "Extraction failed": "FFD9B3", # orange
+    "Lower needed":           "FFFFC0",  # yellow  — need to drop price
+    "Price increase possible": "CCE5FF",  # blue    — you can raise price
+    "Optimal price":           "CCFFCC",  # green   — spot on
+    "Can't compete":           "FFCCCC",  # red     — below your cost
+    "Not found":               "E0E0E0",  # grey    — not on Qogita
+    "Extraction failed":       "FFD9B3",  # orange  — scrape error
 }
+
+# Notes column is now column 10
+NOTES_COL = 10
 
 
 def write_excel(rows: list[AnalysisRow], output_dir: str = "output") -> str:
@@ -55,6 +60,7 @@ def write_excel(rows: list[AnalysisRow], output_dir: str = "output") -> str:
             row["your_qogita_price"],
             row["cost_price"],
             row.get("cheapest_seller"),
+            row.get("cheapest_seller_stock"),
             row.get("cheapest_seller_max_price"),
             row.get("suggested_price"),
             row.get("difference"),
@@ -64,10 +70,9 @@ def write_excel(rows: list[AnalysisRow], output_dir: str = "output") -> str:
             ws.cell(row=row_idx, column=col, value=value)
 
         # Color the Notes cell
-        notes = row["notes"]
-        color = NOTE_COLORS.get(notes)
+        color = NOTE_COLORS.get(row["notes"])
         if color:
-            ws.cell(row=row_idx, column=9).fill = PatternFill("solid", fgColor=color)
+            ws.cell(row=row_idx, column=NOTES_COL).fill = PatternFill("solid", fgColor=color)
 
     # Auto-width columns
     for col in ws.columns:
