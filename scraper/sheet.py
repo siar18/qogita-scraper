@@ -27,6 +27,8 @@ def fetch_sheet_rows(url: str) -> list[SheetRow]:
             cost_price = float(str(row.iloc[5]).replace(",", "."))
         except (ValueError, IndexError):
             continue
+        # Pad GTIN to 13 digits with leading zeros (EAN-13 standard)
+        gtin = gtin.zfill(13)
         rows.append(SheetRow(gtin=gtin, unit_price=unit_price, cost_price=cost_price))
 
     return rows

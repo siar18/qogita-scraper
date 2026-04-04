@@ -1,18 +1,74 @@
 import asyncio
 from playwright.async_api import BrowserContext
 
-QOGITA_BASE = "https://www.qogita.com"
 SEARCH_URL = "https://www.qogita.com/catalog?query={gtin}"
+OFFER_SECTION_TIMEOUT = 25000
 
-# Wait up to this long for the offer section to appear after navigation
-OFFER_SECTION_TIMEOUT = 20000
+# Extract pricing data directly from Qogita's rendered DOM.
+# Uses the grid layout Qogita uses: col-start-1 = unit prices, col-start-3 = stock.
+_JS_EXTRACT = """
+() => {
+    // Product name
+    const h1 = document.querySelector('h1');
+    const productName = h1 ? h1.textContent.trim() : null;
+
+    // Find the "Lowest priced offer" card — identified by shadow-custom2 class + h2 text
+    let lowestCard = null;
+    for (const card of document.querySelectorAll('[class*="shadow-custom2"]')) {
+        for (const h2 of card.querySelectorAll('h2')) {
+            if (h2.textContent.trim() === 'Lowest priced offer') {
+                lowestCard = card;
+                break;
+            }
+        }
+        if (lowestCard) break;
+    }
+
+    if (!lowestCard) return null;
+
+    // Supplier: <a> with font-outfit class containing all-caps alphanumeric code
+    let supplier = null;
+    for (const a of lowestCard.querySelectorAll('a[class*="font-outfit"]')) {
+        const t = a.textContent.trim();
+        if (/^[A-Z0-9]{4,8}$/.test(t)) { supplier = t; break; }
+    }
+
+    // Unit prices: spans with 'md:ml-auto' class (distinguishes unit price from MOV spans)
+    const prices = [];
+    for (const span of lowestCard.querySelectorAll('span[class*="md:ml-auto"]')) {
+        const text = span.textContent.trim();
+        const m = text.match(/€[\\s]*([\\d,.]+)/);
+        if (m) {
+            const p = parseFloat(m[1].replace(',', ''));
+            if (!isNaN(p) && p > 0 && p < 100000) prices.push(p);
+        }
+    }
+    if (prices.length === 0) return null;
+
+    // Stock: <p> with col-start-4 class
+    let stock = null;
+    for (const p of lowestCard.querySelectorAll('p[class*="col-start-4"]')) {
+        const t = p.textContent.trim();
+        if (/^\\d+$/.test(t)) { stock = parseInt(t); break; }
+    }
+
+    return {
+        product_name: productName,
+        cheapest_seller: supplier,
+        prices: prices,
+        stock: stock
+    };
+}
+"""
 
 
-async def get_product_page_html(gtin: str, context: BrowserContext, retries: int = 3) -> str | None:
+async def get_product_page_html(gtin: str, context: BrowserContext, retries: int = 3) -> tuple[str | None, dict | None]:
     """
     Navigate to Qogita product page for a GTIN.
-    Waits for the "Lowest priced offer" section to fully render before returning HTML.
-    Returns the full page HTML, or None if not found.
+    Returns (html, js_data):
+      - js_data: structured data extracted from the live DOM (preferred, free)
+      - html: raw page HTML kept as fallback for Claude extraction
+      - (None, None): product not found on Qogita
     """
     page = None
     for attempt in range(retries):
@@ -21,34 +77,61 @@ async def get_product_page_html(gtin: str, context: BrowserContext, retries: int
             url = SEARCH_URL.format(gtin=gtin)
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
-            # Click first product result
-            results_locator = page.locator("a[href*='/products/']")
-            count = await results_locator.count()
-            if count == 0:
+            # Wait for the search dialog to render product results, then find the product URL
+            # Product links have the form /products/{id}/{slug}/ (3+ segments)
+            _PRODUCT_LINK_JS = r"""
+                () => {
+                    for (const a of document.querySelectorAll('a')) {
+                        const href = a.getAttribute('href') || '';
+                        if (/^\/products\/[^\/]+\/[^\/]+\//.test(href)) return href;
+                    }
+                    return null;
+                }
+            """
+            try:
+                await page.wait_for_function(_PRODUCT_LINK_JS, timeout=10000)
+            except Exception:
+                # No product found for this GTIN
                 await page.close()
                 page = None
-                return None
+                return None, None
 
-            await results_locator.first.click()
+            product_url = await page.evaluate(_PRODUCT_LINK_JS)
+            if product_url is None:
+                await page.close()
+                page = None
+                return None, None
 
-            # Wait for JS to fully render the offer section before grabbing HTML.
-            # This is the critical fix — domcontentloaded fires before React renders the prices.
+            await page.goto(
+                f"https://www.qogita.com{product_url}",
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
+
+            # Wait for the "Lowest priced offer" section to fully render
             try:
                 await page.wait_for_selector(
                     "text=Lowest priced offer",
                     timeout=OFFER_SECTION_TIMEOUT
                 )
             except Exception:
-                # Offer section never appeared — product may have no offers
+                # Product exists but may have no offers
                 pass
 
-            # Extra 2-second delay to be polite to Qogita's servers and avoid rate limiting
+            # Small extra wait for all price tiers to render
             await asyncio.sleep(2)
 
-            html = await page.content()
+            # Extract via JS from the live DOM
+            js_data = await page.evaluate(_JS_EXTRACT)
+
+            # Keep HTML only if JS failed (Claude fallback)
+            html = None
+            if js_data is None:
+                html = await page.content()
+
             await page.close()
             page = None
-            return html
+            return html, js_data
 
         except Exception as e:
             if page is not None:
@@ -58,4 +141,4 @@ async def get_product_page_html(gtin: str, context: BrowserContext, retries: int
                 raise
             await asyncio.sleep(5)
 
-    return None
+    return None, None

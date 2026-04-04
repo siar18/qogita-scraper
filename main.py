@@ -20,10 +20,15 @@ async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="run_full_analysis",
-            description="Fetch the Google Sheet, scrape all GTINs on Qogita, and write a dated Excel analysis file.",
+            description="Fetch the Google Sheet, scrape GTINs on Qogita, and write a dated Excel analysis file.",
             inputSchema={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Optional: only process the first N products (e.g. 10 for a quick test)"
+                    }
+                },
                 "required": []
             }
         ),
@@ -61,7 +66,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     import anthropic
 
     if name == "run_full_analysis":
-        result = await run_analysis()
+        limit = arguments.get("limit")
+        result = await run_analysis(limit=limit)
         _last_run_state.update({
             "last_run": datetime.now().isoformat(),
             **result

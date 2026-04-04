@@ -126,6 +126,18 @@ If no offers exist: {"product_name": null, "cheapest_seller": null, "price_tiers
 Only return JSON, no explanation."""
 
 
+def extract_from_js_data(js_data: dict) -> ProductData:
+    """Build ProductData from the JS-extracted dict. Zero API cost."""
+    prices = js_data.get("prices") or []
+    return ProductData(
+        product_name=js_data.get("product_name"),
+        cheapest_seller=js_data.get("cheapest_seller"),
+        cheapest_seller_max_price=max(prices) if prices else None,
+        cheapest_seller_stock=js_data.get("stock"),
+        extraction_method="js",
+    )
+
+
 def extract_product_data(html: str, client: anthropic.Anthropic = None) -> ProductData:
     # Try fast HTML parsing first — zero API cost
     result = _extract_with_bs4(html)
