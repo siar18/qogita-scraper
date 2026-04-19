@@ -44,6 +44,24 @@ async def list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="run_analysis_from_excel",
+            description="Read products from a local Excel file (with EAN and cost price columns), scrape Qogita, and write a dated Excel analysis file.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "excel_path": {
+                        "type": "string",
+                        "description": "Absolute or relative path to the Excel file containing your products. Must have a header row with an EAN/GTIN column and a cost price column."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Optional: only process the first N products (e.g. 10 for a quick test)"
+                    }
+                },
+                "required": ["excel_path"]
+            }
+        ),
+        types.Tool(
             name="get_analysis_status",
             description="Get metadata about the last analysis run.",
             inputSchema={
@@ -65,7 +83,18 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     from scraper.calculator import calculate_row
     import anthropic
 
-    if name == "run_full_analysis":
+    if name == "run_analysis_from_excel":
+        from scraper.pipeline import run_analysis_from_excel
+        excel_path = arguments["excel_path"]
+        limit = arguments.get("limit")
+        result = await run_analysis_from_excel(excel_path=excel_path, limit=limit)
+        _last_run_state.update({
+            "last_run": datetime.now().isoformat(),
+            **result
+        })
+        return [types.TextContent(type="text", text=json.dumps(result))]
+
+    elif name == "run_full_analysis":
         limit = arguments.get("limit")
         result = await run_analysis(limit=limit)
         _last_run_state.update({

@@ -4,60 +4,84 @@ from playwright.async_api import BrowserContext
 SEARCH_URL = "https://www.qogita.com/catalog?query={gtin}"
 OFFER_SECTION_TIMEOUT = 25000
 
-# Extract pricing data directly from Qogita's rendered DOM.
-# Uses the grid layout Qogita uses: col-start-1 = unit prices, col-start-3 = stock.
+# Extract ALL sellers from the page DOM.
+# Each seller occupies a row div with both col-span-full and grid-flow-dense classes.
+# Delivery: if an "Estimated delivery" button exists in the row, the seller is slow.
 _JS_EXTRACT = """
 () => {
-    // Product name
     const h1 = document.querySelector('h1');
     const productName = h1 ? h1.textContent.trim() : null;
 
-    // Find the "Lowest priced offer" card — identified by shadow-custom2 class + h2 text
-    let lowestCard = null;
-    for (const card of document.querySelectorAll('[class*="shadow-custom2"]')) {
-        for (const h2 of card.querySelectorAll('h2')) {
-            if (h2.textContent.trim() === 'Lowest priced offer') {
-                lowestCard = card;
+    function extractSeller(row) {
+        // Supplier name — all-caps alphanumeric code in a font-outfit link
+        let name = null;
+        for (const a of row.querySelectorAll('a[class*="font-outfit"]')) {
+            const t = a.textContent.trim();
+            if (/^[A-Z0-9]{4,8}$/.test(t)) { name = t; break; }
+        }
+        if (!name) return null;
+
+        // Unit price tiers — spans with md:ml-auto class
+        const prices = [];
+        for (const span of row.querySelectorAll('span[class*="md:ml-auto"]')) {
+            const text = span.textContent.trim();
+            const m = text.match(/\u20ac[\\s\\u00a0]*([\d,.]+)/);
+            if (m) {
+                const p = parseFloat(m[1].replace(',', ''));
+                if (!isNaN(p) && p > 0 && p < 100000) prices.push(p);
+            }
+        }
+        if (prices.length === 0) return null;
+
+        // Stock — p with col-start-4 class
+        let stock = null;
+        for (const p of row.querySelectorAll('p[class*="col-start-4"]')) {
+            const t = p.textContent.trim();
+            if (/^\d+$/.test(t)) { stock = parseInt(t); break; }
+        }
+
+        // Delivery — any button containing "Estimated delivery" means slow delivery.
+        // Capture the raw text for display; null means in-stock / immediate.
+        let delivery = null;
+        for (const btn of row.querySelectorAll('button')) {
+            const t = btn.textContent.trim();
+            if (t.toLowerCase().includes('estimated delivery')) {
+                delivery = t.replace(/estimated delivery:?\\s*/i, '').trim();
                 break;
             }
         }
-        if (lowestCard) break;
+
+        return { name, prices, stock, delivery };
     }
 
-    if (!lowestCard) return null;
+    const sellers = [];
+    const seen = new Set();
 
-    // Supplier: <a> with font-outfit class containing all-caps alphanumeric code
-    let supplier = null;
-    for (const a of lowestCard.querySelectorAll('a[class*="font-outfit"]')) {
-        const t = a.textContent.trim();
-        if (/^[A-Z0-9]{4,8}$/.test(t)) { supplier = t; break; }
-    }
-
-    // Unit prices: spans with 'md:ml-auto' class (distinguishes unit price from MOV spans)
-    const prices = [];
-    for (const span of lowestCard.querySelectorAll('span[class*="md:ml-auto"]')) {
-        const text = span.textContent.trim();
-        const m = text.match(/€[\\s]*([\\d,.]+)/);
-        if (m) {
-            const p = parseFloat(m[1].replace(',', ''));
-            if (!isNaN(p) && p > 0 && p < 100000) prices.push(p);
+    // Primary: each seller row is a div with both col-span-full and grid-flow-dense
+    for (const row of document.querySelectorAll('div[class*="col-span-full"][class*="grid-flow-dense"]')) {
+        const seller = extractSeller(row);
+        if (seller && !seen.has(seller.name)) {
+            seen.add(seller.name);
+            sellers.push(seller);
         }
     }
-    if (prices.length === 0) return null;
 
-    // Stock: <p> with col-start-4 class
-    let stock = null;
-    for (const p of lowestCard.querySelectorAll('p[class*="col-start-4"]')) {
-        const t = p.textContent.trim();
-        if (/^\\d+$/.test(t)) { stock = parseInt(t); break; }
+    // Fallback: if primary found nothing, try the old lowest-card approach
+    if (sellers.length === 0) {
+        for (const card of document.querySelectorAll('[class*="shadow-custom2"]')) {
+            for (const h2 of card.querySelectorAll('h2')) {
+                if (h2.textContent.trim() === 'Lowest priced offer') {
+                    const seller = extractSeller(card);
+                    if (seller) sellers.push(seller);
+                    break;
+                }
+            }
+            if (sellers.length > 0) break;
+        }
     }
 
-    return {
-        product_name: productName,
-        cheapest_seller: supplier,
-        prices: prices,
-        stock: stock
-    };
+    if (sellers.length === 0) return null;
+    return { product_name: productName, sellers };
 }
 """
 
@@ -66,7 +90,7 @@ async def get_product_page_html(gtin: str, context: BrowserContext, retries: int
     """
     Navigate to Qogita product page for a GTIN.
     Returns (html, js_data):
-      - js_data: structured data extracted from the live DOM (preferred, free)
+      - js_data: structured data with all sellers extracted from the live DOM (preferred, free)
       - html: raw page HTML kept as fallback for Claude extraction
       - (None, None): product not found on Qogita
     """
@@ -77,8 +101,6 @@ async def get_product_page_html(gtin: str, context: BrowserContext, retries: int
             url = SEARCH_URL.format(gtin=gtin)
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
-            # Wait for the search dialog to render product results, then find the product URL
-            # Product links have the form /products/{id}/{slug}/ (3+ segments)
             _PRODUCT_LINK_JS = r"""
                 () => {
                     for (const a of document.querySelectorAll('a')) {
@@ -91,7 +113,6 @@ async def get_product_page_html(gtin: str, context: BrowserContext, retries: int
             try:
                 await page.wait_for_function(_PRODUCT_LINK_JS, timeout=10000)
             except Exception:
-                # No product found for this GTIN
                 await page.close()
                 page = None
                 return None, None
@@ -108,23 +129,18 @@ async def get_product_page_html(gtin: str, context: BrowserContext, retries: int
                 timeout=30000
             )
 
-            # Wait for the "Lowest priced offer" section to fully render
             try:
                 await page.wait_for_selector(
                     "text=Lowest priced offer",
                     timeout=OFFER_SECTION_TIMEOUT
                 )
             except Exception:
-                # Product exists but may have no offers
                 pass
 
-            # Small extra wait for all price tiers to render
             await asyncio.sleep(2)
 
-            # Extract via JS from the live DOM
             js_data = await page.evaluate(_JS_EXTRACT)
 
-            # Keep HTML only if JS failed (Claude fallback)
             html = None
             if js_data is None:
                 html = await page.content()

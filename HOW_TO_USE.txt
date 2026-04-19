@@ -1,0 +1,168 @@
+====================================================
+  QOGITA SCRAPER — HOW TO USE
+====================================================
+
+WHAT DOES THIS TOOL DO?
+------------------------
+This scraper looks up your products on Qogita by EAN code,
+finds all sellers and their prices, and gives you up to 3
+suggested selling prices with profit calculations.
+The result is saved as an Excel file in the output/ folder.
+
+
+----------------------------------------------------
+STEP 1 — SETUP (only do this once)
+----------------------------------------------------
+Make sure config.json exists in the qogita-scraper folder.
+It should look like this:
+
+  {
+    "qogita_email": "your@email.com",
+    "qogita_password": "yourpassword",
+    "google_sheet_url": "https://docs.google.com/...",
+    "margin_divisor": 1.12,
+    "headless": true,
+    "anthropic_api_key": "sk-...",
+    "min_stock": 6,
+    "low_stock_gap_threshold": 0.10
+  }
+
+- qogita_email / qogita_password : your Qogita login
+- google_sheet_url                : link to your Google Sheet (exported as .xlsx)
+- margin_divisor                  : your markup (1.12 = 12% margin)
+- headless                        : true = browser runs in background (recommended)
+- anthropic_api_key               : your Anthropic API key (for Claude fallback)
+- min_stock                       : seller 1 stock below this triggers Scenario C (default: 6)
+- low_stock_gap_threshold         : minimum price gap % to trigger Scenario C (default: 0.10 = 10%)
+
+
+----------------------------------------------------
+STEP 2 — OPEN THE TERMINAL IN VS CODE
+----------------------------------------------------
+In VS Code, click on the Terminal at the bottom.
+Then navigate to the project folder by typing:
+
+  cd /Users/siar/Projects/qogita-scraper
+
+You only need to do this once per session.
+IMPORTANT: on Mac always use "python3", not "python".
+
+
+----------------------------------------------------
+OPTION A — RUN FROM YOUR OWN EXCEL FILE (new products)
+----------------------------------------------------
+Use this when you have a list of new products in an Excel file.
+
+Command:
+  python3 run_excel.py /path/to/your_file.xlsx
+
+Example:
+  python3 run_excel.py /Users/siar/Desktop/new_products.xlsx
+
+Test run (only first 10 products):
+  python3 run_excel.py /Users/siar/Desktop/new_products.xlsx --limit 10
+
+YOUR EXCEL FILE MUST HAVE A HEADER ROW with at least:
+  - An EAN/GTIN column
+      Accepted column names: EAN, GTIN, Barcode, Artikel, Article, EAN13, EAN-13
+  - A cost price column
+      Accepted column names: Inkoopprijs, Cost Price, Cost, Purchase Price, Costprice, Inkoop
+
+Optional column (defaults to 0.0 if missing):
+  - Your selling price
+      Accepted column names: Verkoopprijs, Price, Your Price, Unit Price, Jouw Prijs, Selling Price
+
+Column names are case-insensitive. Dutch and English both work.
+
+Example Excel layout:
+  | EAN           | Inkoopprijs | Verkoopprijs |
+  | 8710400000001 | 12.50       | 18.00        |
+  | 8710400000002 | 9.00        |              |
+
+
+----------------------------------------------------
+OPTION B — RUN FROM GOOGLE SHEETS (full inventory)
+----------------------------------------------------
+Use this to run the analysis on your complete product list
+from the Google Sheet linked in config.json.
+
+Command:
+  python3 run_sheets.py
+
+Test run (only first 10 products):
+  python3 run_sheets.py --limit 10
+
+
+----------------------------------------------------
+OUTPUT — EXCEL COLUMNS EXPLAINED
+----------------------------------------------------
+The result is saved automatically in the output/ folder.
+Filename example: output/2026-04-15_qogita_products_analysis.xlsx
+
+The Excel has colour-coded sections:
+
+  GREY — Product Info
+    GTIN, Product Name, Cost Price, Your Current Price,
+    Current Profit € / %  (profit you make right now)
+
+  WHITE — Seller Data (what Qogita shows)
+    Seller 1 (cheapest), their max price, stock, delivery time
+    Seller 2 (second cheapest), their max price, stock
+
+  BLUE — Scenario A: Be the cheapest seller (always calculated)
+    Suggested Price  = Seller 1 max price / margin divisor
+    Profit € / %     = profit you make at that price
+    Will You Be Cheapest? = Yes/No
+    Notes            = Lower needed / Price increase possible / Optimal price / Can't compete
+
+  ORANGE — Scenario B: Seller 1 has slow delivery (only shown when applicable)
+    When the cheapest seller shows an "Estimated delivery" time,
+    buyers may prefer a faster supplier even at a higher price.
+    Suggested Price  = Seller 2 max price / margin divisor (you become 2nd cheapest)
+    Profit € / %     = profit at that price
+    Seller 1 Delivery = the raw delivery text from Qogita (e.g. "7 weeks")
+    Notes            = context about why this scenario applies
+
+  YELLOW — Scenario C: Seller 1 has very low stock (only shown when applicable)
+    When cheapest seller has fewer than min_stock units (default: 6) AND
+    the price gap between seller 1 and seller 2 is more than 10%,
+    you can price just under seller 2 and wait for seller 1 to sell out.
+    When they sell out, you automatically become the cheapest seller.
+    Suggested Price  = Seller 2 max price × 0.98 (2% under seller 2)
+    Profit € / %     = profit at that price
+    Seller 1 Stock Gap % = how much cheaper seller 1 is vs seller 2
+    Notes            = seller 1 stock count + gap + strategy description
+
+Color coding in Scenario A Notes cell:
+  Yellow  = Lower needed          (you need to drop your price)
+  Blue    = Price increase possible (you can raise your price)
+  Green   = Optimal price         (you are right on target)
+  Red     = Can't compete         (price would be below your cost)
+  Grey    = Not found             (product not listed on Qogita)
+  Orange  = Extraction failed     (scrape error, try again)
+
+
+----------------------------------------------------
+RESUME / CHECKPOINT
+----------------------------------------------------
+If the scraper is interrupted mid-run, it saves its progress
+to checkpoint.json. The next time you run it, it will
+automatically continue from where it left off and skip
+products already processed.
+
+
+----------------------------------------------------
+FILES IN THIS PROJECT
+----------------------------------------------------
+  run_excel.py      -> Run scraper with your own Excel file
+  run_sheets.py     -> Run scraper from Google Sheets
+  main.py           -> MCP server (used when running via Claude)
+  config.json       -> Your settings (email, password, thresholds)
+  scraper/          -> Core scraping logic
+  output/           -> All generated Excel result files
+  HOW_TO_USE.txt    -> This file
+
+
+====================================================
+  Last updated: 2026-04-15
+====================================================
